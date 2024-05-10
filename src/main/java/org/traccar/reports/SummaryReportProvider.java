@@ -16,6 +16,7 @@
  */
 package org.traccar.reports;
 
+import jakarta.inject.Inject;
 import org.jxls.util.JxlsHelper;
 import org.traccar.api.security.PermissionsService;
 import org.traccar.config.Config;
@@ -35,12 +36,7 @@ import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Order;
 import org.traccar.storage.query.Request;
 
-import jakarta.inject.Inject;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.ZonedDateTime;
@@ -147,16 +143,15 @@ public class SummaryReportProvider {
     }
 
     public Collection<SummaryReportItem> getObjects(
-            long userId, Collection<Long> deviceIds, Collection<Long> groupIds,
-            Date from, Date to, boolean daily) throws StorageException {
-        reportUtils.checkPeriodLimit(from, to);
+            boolean daily, DeviceGroupQuery deviceGroupQuery) throws StorageException {
+        reportUtils.checkPeriodLimit(deviceGroupQuery.getFrom(), deviceGroupQuery.getTo());
 
-        var tz = UserUtil.getTimezone(permissionsService.getServer(), permissionsService.getUser(userId)).toZoneId();
+        var tz = UserUtil.getTimezone(permissionsService.getServer(), permissionsService.getUser(deviceGroupQuery.getUserId())).toZoneId();
 
         ArrayList<SummaryReportItem> result = new ArrayList<>();
-        for (Device device: DeviceUtil.getAccessibleDevices(storage, userId, deviceIds, groupIds)) {
+        for (Device device : DeviceUtil.getAccessibleDevices(storage, deviceGroupQuery.getUserId(), deviceGroupQuery.getDeviceIds(), deviceGroupQuery.getGroupIds())) {
             var deviceResults = calculateDeviceResults(
-                    device, from.toInstant().atZone(tz), to.toInstant().atZone(tz), daily);
+                    device, deviceGroupQuery.getFrom().toInstant().atZone(tz), deviceGroupQuery.getTo().toInstant().atZone(tz), daily);
             for (SummaryReportItem summaryReport : deviceResults) {
                 if (summaryReport.getStartTime() != null && summaryReport.getEndTime() != null) {
                     result.add(summaryReport);
@@ -167,16 +162,15 @@ public class SummaryReportProvider {
     }
 
     public void getExcel(OutputStream outputStream,
-            long userId, Collection<Long> deviceIds, Collection<Long> groupIds,
-            Date from, Date to, boolean daily) throws StorageException, IOException {
-        Collection<SummaryReportItem> summaries = getObjects(userId, deviceIds, groupIds, from, to, daily);
+                         boolean daily, DeviceGroupQuery deviceGroupQuery) throws StorageException, IOException {
+        Collection<SummaryReportItem> summaries = getObjects(daily, deviceGroupQuery);
 
         File file = Paths.get(config.getString(Keys.TEMPLATES_ROOT), "export", "summary.xlsx").toFile();
         try (InputStream inputStream = new FileInputStream(file)) {
-            var context = reportUtils.initializeContext(userId);
+            var context = reportUtils.initializeContext(deviceGroupQuery.getUserId());
             context.putVar("summaries", summaries);
-            context.putVar("from", from);
-            context.putVar("to", to);
+            context.putVar("from", deviceGroupQuery.getFrom());
+            context.putVar("to", deviceGroupQuery.getTo());
             JxlsHelper.getInstance().setUseFastFormulaProcessor(false)
                     .processTemplate(inputStream, outputStream, context);
         }

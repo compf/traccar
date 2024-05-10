@@ -16,19 +16,19 @@
  */
 package org.traccar.api.resource;
 
+import jakarta.inject.Inject;
+import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.StreamingOutput;
 import org.traccar.api.SimpleObjectResource;
 import org.traccar.helper.LogAction;
 import org.traccar.model.Event;
 import org.traccar.model.Position;
 import org.traccar.model.Report;
 import org.traccar.model.UserRestrictions;
-import org.traccar.reports.CombinedReportProvider;
-import org.traccar.reports.DevicesReportProvider;
-import org.traccar.reports.EventsReportProvider;
-import org.traccar.reports.RouteReportProvider;
-import org.traccar.reports.StopsReportProvider;
-import org.traccar.reports.SummaryReportProvider;
-import org.traccar.reports.TripsReportProvider;
+import org.traccar.reports.*;
 import org.traccar.reports.common.ReportExecutor;
 import org.traccar.reports.common.ReportMailer;
 import org.traccar.reports.model.CombinedReportItem;
@@ -37,18 +37,6 @@ import org.traccar.reports.model.SummaryReportItem;
 import org.traccar.reports.model.TripReportItem;
 import org.traccar.storage.StorageException;
 
-import jakarta.inject.Inject;
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.QueryParam;
-import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.core.HttpHeaders;
-import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.StreamingOutput;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
@@ -114,7 +102,7 @@ public class ReportResource extends SimpleObjectResource<Report> {
             @QueryParam("to") Date to) throws StorageException {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getDisableReports);
         LogAction.logReport(getUserId(), false, "combined", from, to, deviceIds, groupIds);
-        return combinedReportProvider.getObjects(getUserId(), deviceIds, groupIds, from, to);
+        return combinedReportProvider.getObjects(new DeviceGroupQuery(getUserId(), deviceIds, groupIds, from, to));
     }
 
     @Path("route")
@@ -126,7 +114,7 @@ public class ReportResource extends SimpleObjectResource<Report> {
             @QueryParam("to") Date to) throws StorageException {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getDisableReports);
         LogAction.logReport(getUserId(), false, "route", from, to, deviceIds, groupIds);
-        return routeReportProvider.getObjects(getUserId(), deviceIds, groupIds, from, to);
+        return routeReportProvider.getObjects(new DeviceGroupQuery(getUserId(), deviceIds, groupIds, from, to));
     }
 
     @Path("route")
@@ -141,7 +129,7 @@ public class ReportResource extends SimpleObjectResource<Report> {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getDisableReports);
         return executeReport(getUserId(), mail, stream -> {
             LogAction.logReport(getUserId(), false, "route", from, to, deviceIds, groupIds);
-            routeReportProvider.getExcel(stream, getUserId(), deviceIds, groupIds, from, to);
+            routeReportProvider.getExcel(stream, new DeviceGroupQuery(getUserId(), deviceIds, groupIds, from, to));
         });
     }
 
@@ -167,7 +155,7 @@ public class ReportResource extends SimpleObjectResource<Report> {
             @QueryParam("to") Date to) throws StorageException {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getDisableReports);
         LogAction.logReport(getUserId(), false, "events", from, to, deviceIds, groupIds);
-        return eventsReportProvider.getObjects(getUserId(), deviceIds, groupIds, types, from, to);
+        return eventsReportProvider.getObjects(types, new DeviceGroupQuery(getUserId(), deviceIds, groupIds, from, to));
     }
 
     @Path("events")
@@ -183,7 +171,7 @@ public class ReportResource extends SimpleObjectResource<Report> {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getDisableReports);
         return executeReport(getUserId(), mail, stream -> {
             LogAction.logReport(getUserId(), false, "events", from, to, deviceIds, groupIds);
-            eventsReportProvider.getExcel(stream, getUserId(), deviceIds, groupIds, types, from, to);
+            eventsReportProvider.getExcel(stream, types, new DeviceGroupQuery(getUserId(), deviceIds, groupIds, from, to));
         });
     }
 
@@ -210,7 +198,12 @@ public class ReportResource extends SimpleObjectResource<Report> {
             @QueryParam("daily") boolean daily) throws StorageException {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getDisableReports);
         LogAction.logReport(getUserId(), false, "summary", from, to, deviceIds, groupIds);
-        return summaryReportProvider.getObjects(getUserId(), deviceIds, groupIds, from, to, daily);
+        return summaryReportProvider.getObjects(daily, new DeviceGroupQuery(
+                getUserId(),
+                deviceIds,
+                groupIds,
+                from,
+                to));
     }
 
     @Path("summary")
@@ -226,7 +219,7 @@ public class ReportResource extends SimpleObjectResource<Report> {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getDisableReports);
         return executeReport(getUserId(), mail, stream -> {
             LogAction.logReport(getUserId(), false, "summary", from, to, deviceIds, groupIds);
-            summaryReportProvider.getExcel(stream, getUserId(), deviceIds, groupIds, from, to, daily);
+            summaryReportProvider.getExcel(stream, daily, new DeviceGroupQuery(getUserId(), deviceIds, groupIds, from, to));
         });
     }
 
@@ -252,7 +245,7 @@ public class ReportResource extends SimpleObjectResource<Report> {
             @QueryParam("to") Date to) throws StorageException {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getDisableReports);
         LogAction.logReport(getUserId(), false, "trips", from, to, deviceIds, groupIds);
-        return tripsReportProvider.getObjects(getUserId(), deviceIds, groupIds, from, to);
+        return tripsReportProvider.getObjects(new DeviceGroupQuery(getUserId(), deviceIds, groupIds, from, to));
     }
 
     @Path("trips")
@@ -267,7 +260,7 @@ public class ReportResource extends SimpleObjectResource<Report> {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getDisableReports);
         return executeReport(getUserId(), mail, stream -> {
             LogAction.logReport(getUserId(), false, "trips", from, to, deviceIds, groupIds);
-            tripsReportProvider.getExcel(stream, getUserId(), deviceIds, groupIds, from, to);
+            tripsReportProvider.getExcel(stream, new DeviceGroupQuery(getUserId(), deviceIds, groupIds, from, to));
         });
     }
 
@@ -292,7 +285,7 @@ public class ReportResource extends SimpleObjectResource<Report> {
             @QueryParam("to") Date to) throws StorageException {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getDisableReports);
         LogAction.logReport(getUserId(), false, "stops", from, to, deviceIds, groupIds);
-        return stopsReportProvider.getObjects(getUserId(), deviceIds, groupIds, from, to);
+        return stopsReportProvider.getObjects(new DeviceGroupQuery(getUserId(), deviceIds, groupIds, from, to));
     }
 
     @Path("stops")
@@ -307,7 +300,7 @@ public class ReportResource extends SimpleObjectResource<Report> {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getDisableReports);
         return executeReport(getUserId(), mail, stream -> {
             LogAction.logReport(getUserId(), false, "stops", from, to, deviceIds, groupIds);
-            stopsReportProvider.getExcel(stream, getUserId(), deviceIds, groupIds, from, to);
+            stopsReportProvider.getExcel(stream, new DeviceGroupQuery(getUserId(), deviceIds, groupIds, from, to));
         });
     }
 

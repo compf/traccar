@@ -15,6 +15,7 @@
  */
 package org.traccar.reports;
 
+import jakarta.inject.Inject;
 import org.traccar.helper.model.DeviceUtil;
 import org.traccar.helper.model.PositionUtil;
 import org.traccar.model.Device;
@@ -28,10 +29,8 @@ import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Order;
 import org.traccar.storage.query.Request;
 
-import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Date;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -49,23 +48,22 @@ public class CombinedReportProvider {
     }
 
     public Collection<CombinedReportItem> getObjects(
-            long userId, Collection<Long> deviceIds, Collection<Long> groupIds,
-            Date from, Date to) throws StorageException {
-        reportUtils.checkPeriodLimit(from, to);
+            DeviceGroupQuery deviceGroupQuery) throws StorageException {
+        reportUtils.checkPeriodLimit(deviceGroupQuery.getFrom(), deviceGroupQuery.getTo());
 
         ArrayList<CombinedReportItem> result = new ArrayList<>();
-        for (Device device: DeviceUtil.getAccessibleDevices(storage, userId, deviceIds, groupIds)) {
+        for (Device device : DeviceUtil.getAccessibleDevices(storage, deviceGroupQuery.getUserId(), deviceGroupQuery.getDeviceIds(), deviceGroupQuery.getGroupIds())) {
             CombinedReportItem item = new CombinedReportItem();
             item.setDeviceId(device.getId());
-            var positions = PositionUtil.getPositions(storage, device.getId(), from, to);
+            var positions = PositionUtil.getPositions(storage, device.getId(), deviceGroupQuery.getFrom(), deviceGroupQuery.getTo());
             item.setRoute(positions.stream()
-                    .map(p -> new double[] {p.getLongitude(), p.getLatitude()})
+                    .map(p -> new double[]{p.getLongitude(), p.getLatitude()})
                     .collect(Collectors.toList()));
             var events = storage.getObjects(Event.class, new Request(
                     new Columns.All(),
                     new Condition.And(
                             new Condition.Equals("deviceId", device.getId()),
-                            new Condition.Between("eventTime", "from", from, "to", to)),
+                            new Condition.Between("eventTime", "from", deviceGroupQuery.getFrom(), "to", deviceGroupQuery.getTo())),
                     new Order("eventTime")));
             item.setEvents(events.stream()
                     .filter(e -> e.getPositionId() > 0 && !EXCLUDE_TYPES.contains(e.getType()))

@@ -16,16 +16,12 @@
  */
 package org.traccar.reports;
 
+import jakarta.inject.Inject;
 import org.apache.poi.ss.util.WorkbookUtil;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.helper.model.DeviceUtil;
-import org.traccar.model.Device;
-import org.traccar.model.Event;
-import org.traccar.model.Geofence;
-import org.traccar.model.Group;
-import org.traccar.model.Maintenance;
-import org.traccar.model.Position;
+import org.traccar.model.*;
 import org.traccar.reports.common.ReportUtils;
 import org.traccar.reports.model.DeviceReportSection;
 import org.traccar.storage.Storage;
@@ -35,19 +31,9 @@ import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Order;
 import org.traccar.storage.query.Request;
 
-import jakarta.inject.Inject;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
 
 public class EventsReportProvider {
 
@@ -72,22 +58,21 @@ public class EventsReportProvider {
     }
 
     public Collection<Event> getObjects(
-            long userId, Collection<Long> deviceIds, Collection<Long> groupIds,
-            Collection<String> types, Date from, Date to) throws StorageException {
-        reportUtils.checkPeriodLimit(from, to);
+            Collection<String> types, DeviceGroupQuery deviceGroupQuery) throws StorageException {
+        reportUtils.checkPeriodLimit(deviceGroupQuery.getFrom(), deviceGroupQuery.getTo());
 
         ArrayList<Event> result = new ArrayList<>();
-        for (Device device: DeviceUtil.getAccessibleDevices(storage, userId, deviceIds, groupIds)) {
-            Collection<Event> events = getEvents(device.getId(), from, to);
+        for (Device device : DeviceUtil.getAccessibleDevices(storage, deviceGroupQuery.getUserId(), deviceGroupQuery.getDeviceIds(), deviceGroupQuery.getGroupIds())) {
+            Collection<Event> events = getEvents(device.getId(), deviceGroupQuery.getFrom(), deviceGroupQuery.getTo());
             boolean all = types.isEmpty() || types.contains(Event.ALL_EVENTS);
             for (Event event : events) {
                 if (all || types.contains(event.getType())) {
                     long geofenceId = event.getGeofenceId();
                     long maintenanceId = event.getMaintenanceId();
-                    if ((geofenceId == 0 || reportUtils.getObject(userId, Geofence.class, geofenceId) != null)
+                    if ((geofenceId == 0 || reportUtils.getObject(deviceGroupQuery.getUserId(), Geofence.class, geofenceId) != null)
                             && (maintenanceId == 0
-                            || reportUtils.getObject(userId, Maintenance.class, maintenanceId) != null)) {
-                       result.add(event);
+                            || reportUtils.getObject(deviceGroupQuery.getUserId(), Maintenance.class, maintenanceId) != null)) {
+                        result.add(event);
                     }
                 }
             }
@@ -96,32 +81,32 @@ public class EventsReportProvider {
     }
 
     public void getExcel(
-            OutputStream outputStream, long userId, Collection<Long> deviceIds, Collection<Long> groupIds,
-            Collection<String> types, Date from, Date to) throws StorageException, IOException {
-        reportUtils.checkPeriodLimit(from, to);
+            OutputStream outputStream,
+            Collection<String> types, DeviceGroupQuery deviceGroupQuery) throws StorageException, IOException {
+        reportUtils.checkPeriodLimit(deviceGroupQuery.getFrom(), deviceGroupQuery.getTo());
 
         ArrayList<DeviceReportSection> devicesEvents = new ArrayList<>();
         ArrayList<String> sheetNames = new ArrayList<>();
         HashMap<Long, String> geofenceNames = new HashMap<>();
         HashMap<Long, String> maintenanceNames = new HashMap<>();
         HashMap<Long, Position> positions = new HashMap<>();
-        for (Device device: DeviceUtil.getAccessibleDevices(storage, userId, deviceIds, groupIds)) {
-            Collection<Event> events = getEvents(device.getId(), from, to);
+        for (Device device : DeviceUtil.getAccessibleDevices(storage, deviceGroupQuery.getUserId(), deviceGroupQuery.getDeviceIds(), deviceGroupQuery.getGroupIds())) {
+            Collection<Event> events = getEvents(device.getId(), deviceGroupQuery.getFrom(), deviceGroupQuery.getTo());
             boolean all = types.isEmpty() || types.contains(Event.ALL_EVENTS);
-            for (Iterator<Event> iterator = events.iterator(); iterator.hasNext();) {
+            for (Iterator<Event> iterator = events.iterator(); iterator.hasNext(); ) {
                 Event event = iterator.next();
                 if (all || types.contains(event.getType())) {
                     long geofenceId = event.getGeofenceId();
                     long maintenanceId = event.getMaintenanceId();
                     if (geofenceId != 0) {
-                        Geofence geofence = reportUtils.getObject(userId, Geofence.class, geofenceId);
+                        Geofence geofence = reportUtils.getObject(deviceGroupQuery.getUserId(), Geofence.class, geofenceId);
                         if (geofence != null) {
                             geofenceNames.put(geofenceId, geofence.getName());
                         } else {
                             iterator.remove();
                         }
                     } else if (maintenanceId != 0) {
-                        Maintenance maintenance = reportUtils.getObject(userId, Maintenance.class, maintenanceId);
+                        Maintenance maintenance = reportUtils.getObject(deviceGroupQuery.getUserId(), Maintenance.class, maintenanceId);
                         if (maintenance != null) {
                             maintenanceNames.put(maintenanceId, maintenance.getName());
                         } else {
@@ -156,14 +141,14 @@ public class EventsReportProvider {
 
         File file = Paths.get(config.getString(Keys.TEMPLATES_ROOT), "export", "events.xlsx").toFile();
         try (InputStream inputStream = new FileInputStream(file)) {
-            var context = reportUtils.initializeContext(userId);
+            var context = reportUtils.initializeContext(deviceGroupQuery.getUserId());
             context.putVar("devices", devicesEvents);
             context.putVar("sheetNames", sheetNames);
             context.putVar("geofenceNames", geofenceNames);
             context.putVar("maintenanceNames", maintenanceNames);
             context.putVar("positions", positions);
-            context.putVar("from", from);
-            context.putVar("to", to);
+            context.putVar("from", deviceGroupQuery.getFrom());
+            context.putVar("to", deviceGroupQuery.getTo());
             reportUtils.processTemplateWithSheets(inputStream, outputStream, context);
         }
     }

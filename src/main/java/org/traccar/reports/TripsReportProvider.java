@@ -16,6 +16,7 @@
  */
 package org.traccar.reports;
 
+import jakarta.inject.Inject;
 import org.apache.poi.ss.util.WorkbookUtil;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
@@ -31,16 +32,10 @@ import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
 
-import jakarta.inject.Inject;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Date;
 
 public class TripsReportProvider {
 
@@ -56,26 +51,24 @@ public class TripsReportProvider {
     }
 
     public Collection<TripReportItem> getObjects(
-            long userId, Collection<Long> deviceIds, Collection<Long> groupIds,
-            Date from, Date to) throws StorageException {
-        reportUtils.checkPeriodLimit(from, to);
+            DeviceGroupQuery deviceGroupQuery) throws StorageException {
+        reportUtils.checkPeriodLimit(deviceGroupQuery.getFrom(), deviceGroupQuery.getTo());
 
         ArrayList<TripReportItem> result = new ArrayList<>();
-        for (Device device: DeviceUtil.getAccessibleDevices(storage, userId, deviceIds, groupIds)) {
-            result.addAll(reportUtils.detectTripsAndStops(device, from, to, TripReportItem.class));
+        for (Device device : DeviceUtil.getAccessibleDevices(storage, deviceGroupQuery.getUserId(), deviceGroupQuery.getDeviceIds(), deviceGroupQuery.getGroupIds())) {
+            result.addAll(reportUtils.detectTripsAndStops(device, deviceGroupQuery.getFrom(), deviceGroupQuery.getTo(), TripReportItem.class));
         }
         return result;
     }
 
     public void getExcel(OutputStream outputStream,
-            long userId, Collection<Long> deviceIds, Collection<Long> groupIds,
-            Date from, Date to) throws StorageException, IOException {
-        reportUtils.checkPeriodLimit(from, to);
+                         DeviceGroupQuery deviceGroupQuery) throws StorageException, IOException {
+        reportUtils.checkPeriodLimit(deviceGroupQuery.getFrom(), deviceGroupQuery.getTo());
 
         ArrayList<DeviceReportSection> devicesTrips = new ArrayList<>();
         ArrayList<String> sheetNames = new ArrayList<>();
-        for (Device device: DeviceUtil.getAccessibleDevices(storage, userId, deviceIds, groupIds)) {
-            Collection<TripReportItem> trips = reportUtils.detectTripsAndStops(device, from, to, TripReportItem.class);
+        for (Device device : DeviceUtil.getAccessibleDevices(storage, deviceGroupQuery.getUserId(), deviceGroupQuery.getDeviceIds(), deviceGroupQuery.getGroupIds())) {
+            Collection<TripReportItem> trips = reportUtils.detectTripsAndStops(device, deviceGroupQuery.getFrom(), deviceGroupQuery.getTo(), TripReportItem.class);
             DeviceReportSection deviceTrips = new DeviceReportSection();
             deviceTrips.setDeviceName(device.getName());
             sheetNames.add(WorkbookUtil.createSafeSheetName(deviceTrips.getDeviceName()));
@@ -92,11 +85,11 @@ public class TripsReportProvider {
 
         File file = Paths.get(config.getString(Keys.TEMPLATES_ROOT), "export", "trips.xlsx").toFile();
         try (InputStream inputStream = new FileInputStream(file)) {
-            var context = reportUtils.initializeContext(userId);
+            var context = reportUtils.initializeContext(deviceGroupQuery.getUserId());
             context.putVar("devices", devicesTrips);
             context.putVar("sheetNames", sheetNames);
-            context.putVar("from", from);
-            context.putVar("to", to);
+            context.putVar("from", deviceGroupQuery.getFrom());
+            context.putVar("to", deviceGroupQuery.getTo());
             reportUtils.processTemplateWithSheets(inputStream, outputStream, context);
         }
     }
